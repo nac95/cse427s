@@ -1,0 +1,58 @@
+from pyspark import SparkContext
+
+Top_N_Similar = 3
+Preprocessed_data_path = "file:///home/cloudera/netflix_subset/1.txt"
+Original_training_data_path = "file:///home/cloudera/netflix_subset/1.txt"
+Testing_data_path = "file:///home/cloudera/netflix_subset/2.txt"
+
+# Start of item-item, Jaccard
+
+preload = sc.textFile(Preprocessed_data_path) \
+    .map(lambda line:line.split(',')) \
+    .map(lambda splits:(splits[0],splits[1])) \
+    .groupByKey() \
+    .mapValues(list) 
+    
+IIJ = preload.cartesian(preload) \
+      .filter(lambda x : x[0][0] != x[1][0]) \
+      .map(lambda x :(x[0][0],(x[1][0],jsim(x))) ) \
+      .groupByKey() \
+      .mapValues(lambda x :topN(list(x))) \
+      .flatMapValues(lambda x : x) \
+      .map(lambda x : (x[0],x[1][0])) 
+      
+
+
+
+def jsim(x):
+
+	A_Inter_B = list(set(x[0][1]) & set(x[1][1]) )
+	A_Union_B = list(set(x[0][1]) | set(x[1][1]) )
+	return len(A_Inter_B)/len(A_Union_B)
+
+def topN(x):
+	return sorted(x,key=lambda y: y[1],reverse=True)[:Top_N_Similar]
+
+		
+# End of item-item, Pearson correlation
+
+
+training = sc.textFile(Original_training_data_path) \
+    .map(lambda line:line.split(',')) \
+    .map(lambda splits:((splits[1],splits[0]),float(splits[2])) ) 
+
+
+
+prediction = sc.textFile(Testing_data_path) \
+    .map(lambda line:line.split(',')) \
+    .map(lambda splits:(splits[0],splits[1]) ) \
+    .join(IIJ) \
+    .map(lambda x: (x[1],x[0])) \
+    .join(training) \
+    .map(lambda x: ((x[0][0],x[1][0]),x[1][1])) \
+    .groupByKey() \
+    .mapValues(lambda x: sum(x)/len(x)) \
+    .map(lambda x: x[0][1]+","+x[0][0]+","+str(x[1]))
+
+
+print(prediction.collect())
